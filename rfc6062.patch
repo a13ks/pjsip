@@ -1,0 +1,1131 @@
+diff --git a/pjnath/include/pjnath/stun_msg.h b/pjnath/include/pjnath/stun_msg.h
+index 9d3d246..5465344 100644
+--- a/pjnath/include/pjnath/stun_msg.h
++++ b/pjnath/include/pjnath/stun_msg.h
+@@ -93,6 +93,21 @@ enum pj_stun_method_e
+     PJ_STUN_CHANNEL_BIND_METHOD		    = 9,
+ 
+     /**
++     * STUN/TURN Connect as defined by rfc6062
++     */
++    PJ_STUN_CONNECT_METHOD         = 10,
++
++    /**
++     * STUN/TURN ConnectionBind as defined by rfc6062
++     */
++    PJ_STUN_CONNECTION_BIND_METHOD         = 11,
++
++    /**
++     * STUN/TURN ConnectionAttempt as defined by rfc6062
++     */
++    PJ_STUN_CONNECTION_ATTEMPT_METHOD         = 12,
++
++    /**
+      * All known methods.
+      */
+     PJ_STUN_METHOD_MAX
+@@ -291,8 +306,52 @@ typedef enum pj_stun_msg_type
+     /**
+      * Error response to STUN ChannelBind request.
+      */
+-    PJ_STUN_CHANNEL_BIND_ERROR_RESPONSE	    = 0x0119
++    PJ_STUN_CHANNEL_BIND_ERROR_RESPONSE	    = 0x0119,
++
++    /**
++     * STUN/TURN Connect Request
++     */
++    PJ_STUN_CONNECT_REQUEST        = 0x000A,
++
++    /**
++     * Successful response to STUN Connect request
++     */
++    PJ_STUN_CONNECT_RESPONSE       = 0x010A,
++
++    /**
++     * Error response to STUN Connect request.
++     */
++    PJ_STUN_CONNECT_ERROR_RESPONSE     = 0x011A,
+ 
++    /**
++     * STUN/TURN ConnectionBind Request
++     */
++    PJ_STUN_CONNECTION_BIND_REQUEST        = 0x000B,
++
++    /**
++     * Successful response to STUN ConnectionBind request
++     */
++    PJ_STUN_CONNECTION_BIND_RESPONSE       = 0x010B,
++
++    /**
++     * Error response to STUN ConnectionBind request.
++     */
++    PJ_STUN_CONNECTION_BIND_ERROR_RESPONSE     = 0x011B,
++
++    /**
++     * STUN/TURN ConnectAttempt Request
++     */
++    PJ_STUN_CONNECTION_ATTEMPT_REQUEST        = 0x000C,
++
++    /**
++     * Successful response to STUN ConnectAttempt request
++     */
++    PJ_STUN_CONNECTION_ATTEMPT_RESPONSE       = 0x010C,
++
++    /**
++     * Error response to STUN ConnectAttempt request.
++     */
++    PJ_STUN_CONNECTION_ATTEMPT_ERROR_RESPONSE     = 0x011C
+ } pj_stun_msg_type;
+ 
+ 
+@@ -332,6 +391,7 @@ typedef enum pj_stun_attr_type
+     PJ_STUN_ATTR_XOR_REFLECTED_FROM = 0x0023,/**< XOR-REFLECTED-FROM	    */
+     PJ_STUN_ATTR_PRIORITY	    = 0x0024,/**< PRIORITY		    */
+     PJ_STUN_ATTR_USE_CANDIDATE	    = 0x0025,/**< USE-CANDIDATE		    */
++    PJ_STUN_ATTR_CONNECTION_ID      = 0x002A,/**< CONNECTION-ID         */
+     PJ_STUN_ATTR_ICMP		    = 0x0030,/**< ICMP (TURN)		    */
+ 
+     PJ_STUN_ATTR_END_MANDATORY_ATTR,
+diff --git a/pjnath/include/pjnath/turn_session.h b/pjnath/include/pjnath/turn_session.h
+index cc6f826..5a3a06c 100644
+--- a/pjnath/include/pjnath/turn_session.h
++++ b/pjnath/include/pjnath/turn_session.h
+@@ -189,6 +189,13 @@ typedef enum pj_turn_state_t
+      */
+     PJ_TURN_STATE_READY,
+ 
++    PJ_TURN_STATE_CONNECTING,
++    PJ_TURN_STATE_CONNECTED,
++    PJ_TURN_STATE_BINDING_CONNECTION,
++    PJ_TURN_STATE_BOUND_CONNECTION,
++    PJ_TURN_STATE_PEER_CONNECTING,
++    PJ_TURN_STATE_PEER_CONNECTED,
++
+     /**
+      * TURN session has issued deallocate request and is waiting for a
+      * response from the TURN server.
+@@ -208,6 +215,13 @@ typedef enum pj_turn_state_t
+ 
+ } pj_turn_state_t;
+ 
++/** TURN session mode */
++typedef enum pj_turn_mode_t
++{
++  PJ_TURN_MODE_CONTROL,
++  PJ_TURN_MODE_DATA_BIND,
++  PJ_TURN_MODE_DATA
++} pj_turn_mode_t;
+ 
+ #pragma pack(1)
+ 
+@@ -332,6 +346,11 @@ typedef struct pj_turn_alloc_param
+ 
+ } pj_turn_alloc_param;
+ 
++typedef struct pj_turn_bind_param
++{
++  int connection_id;
++
++} pj_turn_bind_param;
+ 
+ /**
+  * This structure describes TURN session info.
+@@ -373,6 +392,8 @@ typedef struct pj_turn_session_info
+      */
+     int		    lifetime;
+ 
++    pj_uint32_t connection_id;
++
+ } pj_turn_session_info;
+ 
+ 
+@@ -731,6 +752,12 @@ PJ_DECL(pj_status_t) pj_turn_session_on_rx_pkt(pj_turn_session *sess,
+ 					       pj_size_t pkt_len,
+ 					       pj_size_t *parsed_len);
+ 
++PJ_DECL(void) pj_turn_set_mode(pj_turn_session *sess, enum pj_turn_mode_t mode);
++PJ_DECL(void) pj_turn_alloc_param_default(pj_turn_alloc_param *prm);
++
++PJ_DECL(pj_turn_mode_t) pj_turn_session_get_mode(pj_turn_session *sess);
++PJ_DECL(pj_status_t) pj_turn_session_send_data(pj_turn_session *sess,
++                        const pj_uint8_t *pkt, unsigned pkt_len);
+ 
+ /**
+  * @}
+diff --git a/pjnath/include/pjnath/turn_sock.h b/pjnath/include/pjnath/turn_sock.h
+index afeb73d..cc5fc21 100644
+--- a/pjnath/include/pjnath/turn_sock.h
++++ b/pjnath/include/pjnath/turn_sock.h
+@@ -446,6 +446,9 @@ PJ_DECL(pj_status_t) pj_turn_sock_bind_channel(pj_turn_sock *turn_sock,
+ 					       const pj_sockaddr_t *peer,
+ 					       unsigned addr_len);
+ 
++PJ_DECL(pj_status_t) pj_turn_sock_send_data(pj_turn_sock *turn_sock,
++                    const pj_uint8_t *pkt,
++                    unsigned pkt_len);
+ 
+ /**
+  * @}
+diff --git a/pjnath/lib/libpjnath-x86_64-apple-darwin11.4.2.a b/pjnath/lib/libpjnath-x86_64-apple-darwin11.4.2.a
+deleted file mode 100644
+index 69a352e..0000000
+Binary files a/pjnath/lib/libpjnath-x86_64-apple-darwin11.4.2.a and /dev/null differ
+diff --git a/pjnath/src/pjnath/stun_msg.c b/pjnath/src/pjnath/stun_msg.c
+index a0d2296..655421b 100644
+--- a/pjnath/src/pjnath/stun_msg.c
++++ b/pjnath/src/pjnath/stun_msg.c
+@@ -45,6 +45,9 @@ static const char *stun_method_names[PJ_STUN_METHOD_MAX] =
+     "Data",			/* 7 */
+     "CreatePermission",		/* 8 */
+     "ChannelBind",		/* 9 */
++    "Connect",      /* 10 */
++    "ConnectionBind",      /* 11 */
++    "ConnectionAttempt",      /* 12 */
+ };
+ 
+ static struct
+@@ -476,11 +479,11 @@ static struct attr_desc mandatory_attr_desc[] =
+ 	NULL
+     },
+     {
+-	/* ID 0x002a is not assigned */
+-	NULL,
+-	NULL,
+-	NULL,
+-	NULL
++	/* PJ_STUN_ATTR_CONNECTION_ID */
++	"CONNECTION-ID",
++    &decode_uint_attr,
++    &encode_uint_attr,
++    &clone_uint_attr
+     },
+     {
+ 	/* ID 0x002b is not assigned */
+diff --git a/pjnath/src/pjnath/stun_msg_dump.c b/pjnath/src/pjnath/stun_msg_dump.c
+index 13f5d95..e607f21 100644
+--- a/pjnath/src/pjnath/stun_msg_dump.c
++++ b/pjnath/src/pjnath/stun_msg_dump.c
+@@ -230,6 +230,17 @@ static int print_attr(char *buffer, unsigned length,
+ 	    APPLY();
+ 	}
+ 	break;
++    case PJ_STUN_ATTR_CONNECTION_ID:
++    {
++        const pj_stun_uint_attr *attr;
++
++        attr = (const pj_stun_uint_attr*)ahdr;
++        len = pj_ansi_snprintf(p, end-p,
++                   ", cid=%u (0x%x)\n",
++                   attr->value,
++                   attr->value);
++        APPLY();
++    }
+     case PJ_STUN_ATTR_USE_CANDIDATE:
+     case PJ_STUN_ATTR_DONT_FRAGMENT:
+     default:
+diff --git a/pjnath/src/pjnath/turn_session.c b/pjnath/src/pjnath/turn_session.c
+index 1492972..1dea55b 100644
+--- a/pjnath/src/pjnath/turn_session.c
++++ b/pjnath/src/pjnath/turn_session.c
+@@ -43,11 +43,24 @@ static const char *state_names[] =
+     "Resolved",
+     "Allocating",
+     "Ready",
++    "Connecting",
++    "Connected",
++    "Binding Connection",
++    "Bound Connection",
++    "Incoming Connection",
++    "Incoming Connected",
+     "Deallocating",
+     "Deallocated",
+     "Destroying"
+ };
+ 
++static const char *mode_names[] = 
++{
++    "Control",
++    "Data-Binding",
++    "Data"
++};
++
+ enum timer_id_t
+ {
+     TIMER_NONE,
+@@ -118,6 +131,7 @@ struct pj_turn_session
+     int			 busy;
+ 
+     pj_turn_state_t	 state;
++    pj_turn_mode_t   mode;
+     pj_status_t		 last_status;
+     pj_bool_t		 pending_destroy;
+ 
+@@ -139,7 +153,9 @@ struct pj_turn_session
+     pj_sockaddr		*srv_addr;
+ 
+     pj_bool_t		 pending_alloc;
++    pj_bool_t        pending_bind;
+     pj_turn_alloc_param	 alloc_param;
++    pj_turn_bind_param   bind_param;
+ 
+     pj_sockaddr		 mapped_addr;
+     pj_sockaddr		 relay_addr;
+@@ -152,6 +168,7 @@ struct pj_turn_session
+     pj_uint8_t		 tx_pkt[PJ_TURN_MAX_PKT_LEN];
+ 
+     pj_uint16_t		 next_ch;
++    pj_uint32_t      connection_id;
+ };
+ 
+ 
+@@ -222,6 +239,25 @@ PJ_DEF(void) pj_turn_alloc_param_copy( pj_pool_t *pool,
+ }
+ 
+ /*
++ * Create default pj_turn_bind_param.
++ */
++PJ_DEF(void) pj_turn_bind_param_default(pj_turn_bind_param *prm)
++{
++    pj_bzero(prm, sizeof(*prm));
++}
++
++/*
++ * Duplicate pj_turn_bind_param.
++ */
++PJ_DEF(void) pj_turn_bind_param_copy( pj_pool_t *pool, 
++                       pj_turn_bind_param *dst,
++                       const pj_turn_bind_param *src)
++{
++    PJ_UNUSED_ARG(pool);
++    pj_memcpy(dst, src, sizeof(*dst));
++}
++
++/*
+  * Get TURN state name.
+  */
+ PJ_DEF(const char*) pj_turn_state_name(pj_turn_state_t state)
+@@ -357,9 +393,33 @@ static void do_destroy(pj_turn_session *sess)
+     pj_grp_lock_release(sess->grp_lock);
+ }
+ 
++/* Set session mode */
++PJ_DEF(void) pj_turn_set_mode(pj_turn_session *sess, enum pj_turn_mode_t mode)
++{
++    pj_turn_mode_t old_mode = sess->mode;
++
++    if (mode==sess->mode)
++    return;
++
++    PJ_LOG(4,(sess->obj_name, "Mode changed %s --> %s",
++          mode_names[old_mode], mode_names[mode]));
++    sess->mode = mode;
++
++    // if (sess->cb.on_state) {
++    // (*sess->cb.on_state)(sess, old_state, state);
++    // }
++}
++
++/**
++ * Retrieve user data.
++ */
++PJ_DEF(pj_turn_mode_t) pj_turn_session_get_mode(pj_turn_session *sess)
++{
++    return sess->mode;
++}
+ 
+ /* Set session state */
+-static void set_state(pj_turn_session *sess, enum pj_turn_state_t state)
++void set_state(pj_turn_session *sess, enum pj_turn_state_t state)
+ {
+     pj_turn_state_t old_state = sess->state;
+ 
+@@ -491,6 +551,7 @@ PJ_DEF(pj_status_t) pj_turn_session_get_info( pj_turn_session *sess,
+     info->conn_type = sess->conn_type;
+     info->lifetime = sess->expiry.sec - now.sec;
+     info->last_status = sess->last_status;
++    info->connection_id = sess->connection_id;
+ 
+     if (sess->srv_addr)
+ 	pj_memcpy(&info->server, sess->srv_addr, sizeof(info->server));
+@@ -701,6 +762,80 @@ PJ_DEF(pj_status_t) pj_turn_session_set_credential(pj_turn_session *sess,
+     return PJ_SUCCESS;
+ }
+ 
++/**
++ * Create TURN allocation.
++ */
++PJ_DEF(pj_status_t) pj_turn_session_bind(pj_turn_session *sess,
++                      const pj_turn_bind_param *param)
++{
++    pj_stun_tx_data *tdata;
++    pj_bool_t retransmit;
++    pj_status_t status;
++
++    PJ_ASSERT_RETURN(sess, PJ_EINVAL);
++    PJ_ASSERT_RETURN(sess->state>PJ_TURN_STATE_NULL && 
++             sess->state<=PJ_TURN_STATE_RESOLVED, 
++             PJ_EINVALIDOP);
++
++    pj_grp_lock_acquire(sess->grp_lock);
++
++    if (param) {
++        sess->connection_id = param->connection_id;
++
++        PJ_LOG(4,(sess->obj_name, "Prepare ConnectionBind request with Connection-ID: %d [0x%x]",
++          param->connection_id, param->connection_id));
++    }
++
++    if (param && param != &sess->alloc_param) 
++    pj_turn_alloc_param_copy(sess->pool, &sess->alloc_param, param);
++
++    if (sess->state < PJ_TURN_STATE_RESOLVED) {
++    sess->pending_bind = PJ_TRUE;
++
++    PJ_LOG(4,(sess->obj_name, "Pending ALLOCATE in state %s",
++          state_names[sess->state]));
++
++    pj_grp_lock_release(sess->grp_lock);
++    return PJ_SUCCESS;
++
++    }
++
++    /* Ready to allocate */
++    pj_assert(sess->state == PJ_TURN_STATE_RESOLVED);
++    
++    /* Create a bare request */
++    status = pj_stun_session_create_req(sess->stun, PJ_STUN_CONNECTION_BIND_REQUEST,
++                    PJ_STUN_MAGIC, NULL, &tdata);
++    if (status != PJ_SUCCESS) {
++    pj_grp_lock_release(sess->grp_lock);
++    return status;
++    }
++
++    /* MUST include CONNECTION-ID attribute */
++    pj_stun_msg_add_uint_attr(tdata->pool, tdata->msg,
++                  PJ_STUN_ATTR_CONNECTION_ID, 
++                  sess->connection_id);
++
++    /* Server address must be set */
++    pj_assert(sess->srv_addr != NULL);
++
++    /* Send request */
++    set_state(sess, PJ_TURN_STATE_BINDING_CONNECTION);
++    retransmit = (sess->conn_type == PJ_TURN_TP_UDP);
++    status = pj_stun_session_send_msg(sess->stun, NULL, PJ_FALSE, 
++                      retransmit, sess->srv_addr,
++                      pj_sockaddr_get_len(sess->srv_addr), 
++                      tdata);
++    if (status != PJ_SUCCESS) {
++    /* Set state back to RESOLVED. We don't want to destroy session now,
++     * let the application do it if it wants to.
++     */
++    set_state(sess, PJ_TURN_STATE_BOUND_CONNECTION);
++    }
++
++    pj_grp_lock_release(sess->grp_lock);
++    return status;
++}
+ 
+ /**
+  * Create TURN allocation.
+@@ -747,7 +882,7 @@ PJ_DEF(pj_status_t) pj_turn_session_alloc(pj_turn_session *sess,
+     /* MUST include REQUESTED-TRANSPORT attribute */
+     pj_stun_msg_add_uint_attr(tdata->pool, tdata->msg,
+ 			      PJ_STUN_ATTR_REQ_TRANSPORT, 
+-			      PJ_STUN_SET_RT_PROTO(PJ_TURN_TP_UDP));
++			      PJ_STUN_SET_RT_PROTO(PJ_TURN_TP_TCP));
+ 
+     /* Include BANDWIDTH if requested */
+     if (sess->alloc_param.bandwidth > 0) {
+@@ -924,6 +1059,32 @@ on_error:
+     }
+ }
+ 
++/**
++ * Relay data to the specified peer through the session.
++ */
++PJ_DEF(pj_status_t) pj_turn_session_send_data( pj_turn_session *sess,
++                        const pj_uint8_t *pkt,
++                        unsigned pkt_len)
++{
++    pj_status_t status;
++
++    /* Lock session now */
++    pj_grp_lock_acquire(sess->grp_lock);
++
++    /* Send the data */
++    status = sess->cb.on_send_pkt(sess, pkt, 
++                      (unsigned)pkt_len,
++                      sess->srv_addr,
++                      pj_sockaddr_get_len(sess->srv_addr));
++
++    PJ_LOG(4,(sess->obj_name, 
++          "Sending data status = %d...", status));
++
++on_return:
++    pj_grp_lock_release(sess->grp_lock);
++    return status;
++}
++
+ 
+ /**
+  * Relay data to the specified peer through the session.
+@@ -1042,7 +1203,6 @@ on_return:
+     return status;
+ }
+ 
+-
+ /**
+  * Bind a peer address to a channel number.
+  */
+@@ -1126,6 +1286,17 @@ PJ_DEF(pj_status_t) pj_turn_session_on_rx_pkt(pj_turn_session *sess,
+     /* Start locking the session */
+     pj_grp_lock_acquire(sess->grp_lock);
+ 
++    if (sess->mode == PJ_TURN_MODE_DATA) {
++        /* Notify application */
++        if (sess->cb.on_rx_data) {
++            PJ_LOG(4,(sess->obj_name, "Notify application: %lu bytes", pkt_len));
++            (*sess->cb.on_rx_data)(sess, ((pj_uint8_t*)pkt), 
++                       pkt_len, NULL, 0);
++        }
++
++        goto on_return;
++    }
++
+     is_datagram = (sess->conn_type==PJ_TURN_TP_UDP);
+ 
+     /* Quickly check if this is STUN message */
+@@ -1589,11 +1760,7 @@ static void stun_on_request_complete(pj_stun_session *stun,
+ 		it = pj_hash_next(sess->perm_table, it);
+ 
+ 		if (perm->req_token == token) {
+-		    PJ_LOG(1,(sess->obj_name, 
+-			      "CreatePermission failed for IP %s: %d/%.*s",
+-			      pj_sockaddr_print(&perm->addr, ipstr, 
+-						sizeof(ipstr), 2),
+-			      err_code, (int)reason.slen, reason.ptr));
++
+ 
+ 		    invalidate_perm(sess, perm);
+ 		}
+@@ -1607,6 +1774,49 @@ static void stun_on_request_complete(pj_stun_session *stun,
+ 	    }
+ 	}
+ 
++    } else if (method == PJ_STUN_CONNECT_METHOD) {
++    /* Handle Connect response */
++    if (status==PJ_SUCCESS && 
++        PJ_STUN_IS_SUCCESS_RESPONSE(response->hdr.type)) 
++    {
++        const pj_stun_uint_attr *conn_id_attr;
++        conn_id_attr = (const pj_stun_uint_attr*)
++               pj_stun_msg_find_attr(response,
++                         PJ_STUN_ATTR_CONNECTION_ID, 0);
++
++        if (conn_id_attr) {
++            sess->connection_id = conn_id_attr->value;
++        } else {
++            sess->connection_id = 0;
++        }
++
++        set_state(sess, PJ_TURN_STATE_CONNECTED);
++    } else {
++
++    }
++
++    } else if (method == PJ_STUN_CONNECTION_BIND_METHOD) {
++    /* Handle Connection Bind response */
++    if (status==PJ_SUCCESS && 
++        PJ_STUN_IS_SUCCESS_RESPONSE(response->hdr.type)) 
++    {
++        set_state(sess, PJ_TURN_STATE_BOUND_CONNECTION);
++        pj_turn_set_mode(sess, PJ_TURN_MODE_DATA);
++        set_state(sess, PJ_TURN_STATE_READY);
++    } else {
++
++    }
++
++    } else if (method == PJ_STUN_CONNECTION_ATTEMPT_METHOD) {
++    /* Handle Connect response */
++    if (status==PJ_SUCCESS && 
++        PJ_STUN_IS_SUCCESS_RESPONSE(response->hdr.type)) 
++    {
++        set_state(sess, PJ_TURN_STATE_PEER_CONNECTING);
++    } else {
++
++    }
++
+     } else {
+ 	PJ_LOG(4,(sess->obj_name, "Unexpected STUN %s response",
+ 		  pj_stun_get_method_name(response->hdr.type)));
+@@ -1630,6 +1840,7 @@ static pj_status_t stun_on_rx_indication(pj_stun_session *stun,
+     pj_stun_xor_peer_addr_attr *peer_attr;
+     pj_stun_icmp_attr *icmp;
+     pj_stun_data_attr *data_attr;
++    pj_stun_uint_attr *conn_id_attr;
+ 
+     PJ_UNUSED_ARG(token);
+     PJ_UNUSED_ARG(pkt);
+@@ -1639,6 +1850,25 @@ static pj_status_t stun_on_rx_indication(pj_stun_session *stun,
+ 
+     sess = (pj_turn_session*)pj_stun_session_get_user_data(stun);
+ 
++    if (PJ_STUN_GET_METHOD(msg->hdr.type) == PJ_STUN_CONNECTION_ATTEMPT_METHOD) {
++        conn_id_attr = (const pj_stun_uint_attr*)
++               pj_stun_msg_find_attr(msg, PJ_STUN_ATTR_CONNECTION_ID, 0);
++
++        PJ_LOG(4,(sess->obj_name, "Received TURN %s indication",
++              pj_stun_get_method_name(msg->hdr.type)));
++
++        if (conn_id_attr) {
++            sess->connection_id = conn_id_attr->value;
++        } else {
++            sess->connection_id = NULL;
++            return PJ_EINVALIDOP;
++        }
++
++        set_state(sess, PJ_TURN_STATE_PEER_CONNECTING);
++
++        return PJ_SUCCESS;
++    }
++
+     /* Expecting Data Indication only */
+     if (msg->hdr.type != PJ_STUN_DATA_INDICATION) {
+ 	PJ_LOG(4,(sess->obj_name, "Unexpected STUN %s indication",
+@@ -1738,6 +1968,8 @@ static void dns_srv_resolver_cb(void *user_data,
+     /* Run pending allocation */
+     if (sess->pending_alloc) {
+ 	pj_turn_session_alloc(sess, NULL);
++    } else if (sess->pending_bind) {
++
+     }
+ }
+ 
+@@ -2050,3 +2282,115 @@ on_return:
+     pj_grp_lock_release(sess->grp_lock);
+ }
+ 
++PJ_DEF(pj_status_t) pj_turn_session_send_connect(pj_turn_session *sess,
++                         const pj_sockaddr_t *peer_adr,
++                         unsigned addr_len)
++{
++    struct ch_t *ch;
++    pj_stun_tx_data *tdata;
++    pj_uint16_t ch_num;
++    pj_status_t status;
++
++    PJ_ASSERT_RETURN(sess && peer_adr && addr_len, PJ_EINVAL);
++    PJ_ASSERT_RETURN(sess->state == PJ_TURN_STATE_READY, PJ_EINVALIDOP);
++
++    pj_grp_lock_acquire(sess->grp_lock);
++
++    /* Create blank ChannelBind request */
++    status = pj_stun_session_create_req(sess->stun, 
++                    PJ_STUN_CONNECT_REQUEST,
++                    PJ_STUN_MAGIC, NULL, &tdata);
++    if (status != PJ_SUCCESS)
++    goto on_return;
++
++    /* Add XOR-PEER-ADDRESS attribute */
++    pj_stun_msg_add_sockaddr_attr(tdata->pool, tdata->msg,
++                  PJ_STUN_ATTR_XOR_PEER_ADDR, PJ_TRUE,
++                  peer_adr, addr_len);
++
++    /* Send the request, associate peer data structure with tdata 
++     * for future reference when we receive the ChannelBind response.
++     */
++    status = pj_stun_session_send_msg(sess->stun, ch, PJ_FALSE, 
++                      (sess->conn_type==PJ_TURN_TP_UDP),
++                      sess->srv_addr,
++                      pj_sockaddr_get_len(sess->srv_addr),
++                      tdata);
++
++    set_state(sess, PJ_TURN_STATE_CONNECTING);
++
++on_return:
++    pj_grp_lock_release(sess->grp_lock);
++    return status;
++}
++
++PJ_DEF(pj_status_t) pj_turn_session_send_connection_bind( pj_turn_session *sess,
++                          unsigned addr_cnt,
++                          const pj_sockaddr addr[],
++                          unsigned options)
++{
++    pj_stun_tx_data *tdata;
++    pj_hash_iterator_t it_buf, *it;
++    void *req_token;
++    unsigned i, attr_added=0;
++    pj_status_t status;
++
++    PJ_ASSERT_RETURN(sess && addr_cnt && addr, PJ_EINVAL);
++
++    pj_grp_lock_acquire(sess->grp_lock);
++
++    /* Create a bare Connect request */
++    status = pj_stun_session_create_req(sess->stun, 
++                    PJ_STUN_CONNECT_REQUEST,
++                    PJ_STUN_MAGIC, NULL, &tdata);
++    if (status != PJ_SUCCESS) {
++    pj_grp_lock_release(sess->grp_lock);
++    return status;
++    }
++
++    /* Create request token to map the request to the perm structures
++     * which the request belongs.
++     */
++    req_token = (void*)(pj_ssize_t)pj_rand();
++
++    /* Process the addresses */
++    for (i=0; i<addr_cnt; ++i) {
++        /* Add XOR-PEER-ADDRESS */
++        status = pj_stun_msg_add_sockaddr_attr(tdata->pool, tdata->msg,
++                           PJ_STUN_ATTR_XOR_PEER_ADDR,
++                           PJ_TRUE,
++                           &addr[i],
++                           sizeof(addr[i]));
++        if (status != PJ_SUCCESS)
++        goto on_error;
++
++        ++attr_added;
++    }
++
++    pj_assert(attr_added != 0);
++
++    /* Send the request */
++    status = pj_stun_session_send_msg(sess->stun, req_token, PJ_FALSE, 
++                      (sess->conn_type==PJ_TURN_TP_UDP),
++                      sess->srv_addr,
++                      pj_sockaddr_get_len(sess->srv_addr), 
++                      tdata);
++
++    if (status != PJ_SUCCESS) {
++    /* tdata is already destroyed */
++    tdata = NULL;
++    goto on_error;
++    }
++
++    pj_grp_lock_release(sess->grp_lock);
++    return PJ_SUCCESS;
++
++on_error:
++    /* destroy tdata */
++    if (tdata) {
++    pj_stun_msg_destroy_tdata(sess->stun, tdata);
++    }
++
++    pj_grp_lock_release(sess->grp_lock);
++    return status;
++}
+diff --git a/pjnath/src/pjnath/turn_sock.c b/pjnath/src/pjnath/turn_sock.c
+index 76f2a58..8ee7715 100644
+--- a/pjnath/src/pjnath/turn_sock.c
++++ b/pjnath/src/pjnath/turn_sock.c
+@@ -50,6 +50,7 @@ struct pj_turn_sock
+     pj_grp_lock_t	*grp_lock;
+ 
+     pj_turn_alloc_param	 alloc_param;
++    pj_turn_bind_param   bind_param;
+     pj_stun_config	 cfg;
+     pj_turn_sock_cfg	 setting;
+ 
+@@ -59,6 +60,7 @@ struct pj_turn_sock
+     pj_turn_tp_type	 conn_type;
+     pj_activesock_t	*active_sock;
+     pj_ioqueue_op_key_t	 send_key;
++    unsigned int connection_id;
+ };
+ 
+ 
+@@ -388,6 +390,60 @@ PJ_DEF(pj_status_t) pj_turn_sock_set_software_name( pj_turn_sock *turn_sock,
+ /*
+  * Initialize.
+  */
++PJ_DEF(pj_status_t) pj_turn_sock_bind(pj_turn_sock *turn_sock,
++                       const pj_str_t *domain,
++                       int default_port,
++                       pj_dns_resolver *resolver,
++                       const pj_stun_auth_cred *cred,
++                       const pj_turn_bind_param *param)
++{
++    pj_status_t status;
++
++    PJ_ASSERT_RETURN(turn_sock && domain, PJ_EINVAL);
++    PJ_ASSERT_RETURN(turn_sock->sess, PJ_EINVALIDOP);
++
++    pj_grp_lock_acquire(turn_sock->grp_lock);
++
++    /* Copy bind param. We will call session_alloc() only after the 
++     * server address has been resolved.
++     */
++    if (param) {
++    pj_turn_bind_param_copy(turn_sock->pool, &turn_sock->bind_param, param);
++    } else {
++    pj_turn_bind_param_default(&turn_sock->bind_param);
++    }
++
++    /* Set credental */
++    if (cred) {
++    status = pj_turn_session_set_credential(turn_sock->sess, cred);
++    if (status != PJ_SUCCESS) {
++        sess_fail(turn_sock, "Error setting credential", status);
++        pj_grp_lock_release(turn_sock->grp_lock);
++        return status;
++    }
++    }
++
++    pj_turn_set_mode(turn_sock->sess, PJ_TURN_MODE_DATA_BIND);
++
++    /* Resolve server */
++    status = pj_turn_session_set_server(turn_sock->sess, domain, default_port,
++                    resolver);
++    if (status != PJ_SUCCESS) {
++    sess_fail(turn_sock, "Error setting TURN server", status);
++    pj_grp_lock_release(turn_sock->grp_lock);
++    return status;
++    }
++
++    /* Done for now. The next work will be done when session state moved
++     * to RESOLVED state.
++     */
++    pj_grp_lock_release(turn_sock->grp_lock);
++    return PJ_SUCCESS;
++}
++
++/*
++ * Initialize.
++ */
+ PJ_DEF(pj_status_t) pj_turn_sock_alloc(pj_turn_sock *turn_sock,
+ 				       const pj_str_t *domain,
+ 				       int default_port,
+@@ -451,6 +507,18 @@ PJ_DEF(pj_status_t) pj_turn_sock_set_perm( pj_turn_sock *turn_sock,
+     return pj_turn_session_set_perm(turn_sock->sess, addr_cnt, addr, options);
+ }
+ 
++PJ_DEF(pj_status_t) pj_turn_sock_send_data(pj_turn_sock *turn_sock,
++                    const pj_uint8_t *pkt,
++                    unsigned pkt_len)
++{
++    PJ_ASSERT_RETURN(turn_sock, PJ_EINVAL);
++
++    if (turn_sock->sess == NULL)
++    return PJ_EINVALIDOP;
++
++    return pj_turn_session_send_data(turn_sock->sess, pkt, pkt_len);
++}
++
+ /*
+  * Send packet.
+  */ 
+@@ -482,6 +550,18 @@ PJ_DEF(pj_status_t) pj_turn_sock_bind_channel( pj_turn_sock *turn_sock,
+     return pj_turn_session_bind_channel(turn_sock->sess, peer, addr_len);
+ }
+ 
++/*
++ * Connect to a peer address.
++ */
++PJ_DEF(pj_status_t) pj_turn_sock_connect( pj_turn_sock *turn_sock,
++                          const pj_sockaddr_t *peer,
++                          unsigned addr_len)
++{
++    PJ_ASSERT_RETURN(turn_sock && peer && addr_len, PJ_EINVAL);
++    PJ_ASSERT_RETURN(turn_sock->sess != NULL, PJ_EINVALIDOP);
++
++    return pj_turn_session_send_connect(turn_sock->sess, peer, addr_len);
++}
+ 
+ /*
+  * Notification when outgoing TCP socket has been connected.
+@@ -524,11 +604,23 @@ static pj_bool_t on_connect_complete(pj_activesock_t *asock,
+     pj_ioqueue_op_key_init(&turn_sock->send_key, sizeof(turn_sock->send_key));
+ 
+     /* Send Allocate request */
+-    status = pj_turn_session_alloc(turn_sock->sess, &turn_sock->alloc_param);
+-    if (status != PJ_SUCCESS) {
+-	sess_fail(turn_sock, "Error sending ALLOCATE", status);
+-	pj_grp_lock_release(turn_sock->grp_lock);
+-	return PJ_FALSE;
++    if (pj_turn_session_get_mode(turn_sock->sess) == PJ_TURN_MODE_DATA_BIND) {
++        PJ_LOG(4,(turn_sock->obj_name, "sess mode = PJ_TURN_MODE_DATA_BIND: %d [0x%x]",
++          turn_sock->bind_param, turn_sock->bind_param));
++
++        status = pj_turn_session_bind(turn_sock->sess, &turn_sock->bind_param);
++        if (status != PJ_SUCCESS) {
++        sess_fail(turn_sock, "Error sending CONNECTION BIND", status);
++        pj_grp_lock_release(turn_sock->grp_lock);
++        return PJ_FALSE;
++        }
++    } else {
++        status = pj_turn_session_alloc(turn_sock->sess, &turn_sock->alloc_param);
++        if (status != PJ_SUCCESS) {
++    	sess_fail(turn_sock, "Error sending ALLOCATE", status);
++    	pj_grp_lock_release(turn_sock->grp_lock);
++    	return PJ_FALSE;
++        }
+     }
+ 
+     pj_grp_lock_release(turn_sock->grp_lock);
+@@ -551,6 +643,11 @@ static unsigned has_packet(pj_turn_sock *turn_sock, const void *buf, pj_size_t b
+     if (turn_sock->conn_type == PJ_TURN_TP_UDP)
+ 	return (unsigned)bufsize;
+ 
++    if (turn_sock->conn_type == PJ_TURN_TP_TCP &&
++        pj_turn_session_get_mode(turn_sock->sess) == PJ_TURN_MODE_DATA) {
++        return (unsigned)bufsize;
++    }
++
+     /* Quickly check if this is STUN message, by checking the first two bits and
+      * size field which must be multiple of 4 bytes
+      */
+diff --git a/pjnath/src/pjturn-client/client_main.c b/pjnath/src/pjturn-client/client_main.c
+index 67ec5cc..d56807b 100644
+--- a/pjnath/src/pjturn-client/client_main.c
++++ b/pjnath/src/pjturn-client/client_main.c
+@@ -20,6 +20,7 @@
+ #include <pjnath.h>
+ #include <pjlib-util.h>
+ #include <pjlib.h>
++#include <pj/sock.h>
+ 
+ 
+ #define THIS_FILE	"client_main.c"
+@@ -46,12 +47,16 @@ static struct global
+     pj_caching_pool	 cp;
+     pj_pool_t		*pool;
+     pj_stun_config	 stun_config;
++    pj_stun_config   turn_config;
++
+     pj_thread_t		*thread;
+     pj_bool_t		 quit;
+ 
+     pj_dns_resolver	*resolver;
+ 
+     pj_turn_sock	*relay;
++    pj_turn_sock    *data_relay;
++
+     pj_sockaddr		 relay_addr;
+ 
+     struct peer		 peer[2];
+@@ -68,6 +73,8 @@ static struct options
+     pj_bool_t	 use_fingerprint;
+     char	*stun_server;
+     char	*nameserver;
++    char    *peer_addr;
++    char    *peer_port;
+ } o;
+ 
+ 
+@@ -242,6 +249,51 @@ static int worker_thread(void *unused)
+     return 0;
+ }
+ 
++static pj_status_t connect_relay(pj_uint32_t connection_id)
++{
++    pj_turn_sock_cb rel_cb;
++    pj_stun_auth_cred cred;
++    pj_str_t srv;
++    pj_status_t status;
++    pj_turn_bind_param bind_param;
++
++    pj_bzero(&rel_cb, sizeof(rel_cb));
++    rel_cb.on_rx_data = &turn_on_rx_data;
++    rel_cb.on_state = &turn_on_state;
++
++    CHECK( pj_turn_sock_create(&g.stun_config, pj_AF_INET(), 
++                   PJ_TURN_TP_TCP,
++                   &rel_cb, 0,
++                   NULL, &g.data_relay) );
++
++    pj_turn_alloc_param_default(&bind_param);
++
++    bind_param.connection_id = connection_id;
++
++    if (o.user_name) {
++    pj_bzero(&cred, sizeof(cred));
++    cred.type = PJ_STUN_AUTH_CRED_STATIC;
++    cred.data.static_cred.realm = pj_str(o.realm);
++    cred.data.static_cred.username = pj_str(o.user_name);
++    cred.data.static_cred.data_type = PJ_STUN_PASSWD_PLAIN;
++    cred.data.static_cred.data = pj_str(o.password);
++    //cred.data.static_cred.nonce = pj_str(o.nonce);
++    } else {
++    PJ_LOG(2,(THIS_FILE, "Warning: no credential is set"));
++    }
++
++    srv = pj_str(o.srv_addr);
++    CHECK(pj_turn_sock_bind(g.data_relay,                /* the relay */
++                &srv,                /* srv addr */
++                (o.srv_port?atoi(o.srv_port):PJ_STUN_PORT),/* def port */
++                g.resolver,              /* resolver */
++                (o.user_name?&cred:NULL),        /* credential */
++                &bind_param)                /* alloc param */
++                );
++
++    return PJ_SUCCESS;
++}
++
+ static pj_status_t create_relay(void)
+ {
+     pj_turn_sock_cb rel_cb;
+@@ -321,26 +373,64 @@ static void turn_on_rx_data(pj_turn_sock *relay,
+ {
+     char addrinfo[80];
+ 
++    if (addr_len == 0) {
++        PJ_LOG(3,(THIS_FILE, "Client received %d bytes data: %.*s", pkt_len, pkt_len, pkt));
++        return;
++    }
++
+     pj_sockaddr_print(peer_addr, addrinfo, sizeof(addrinfo), 3);
+ 
+     PJ_LOG(3,(THIS_FILE, "Client received %d bytes data from %s: %.*s",
+ 	      pkt_len, addrinfo, pkt_len, pkt));
+ }
+ 
++static void send_turn_data(void) {
++    pj_status_t status;
++    pj_sockaddr_in mapped_addr;
++    char input[32];
++    pj_str_t s1;
++
++    strcpy(input, "Hello from client");
++    status = pj_turn_sock_send_data(g.data_relay, (const pj_uint8_t*)input, strlen(input)+1);
++
++    if (status != PJ_SUCCESS)
++    my_perror("turn_udp_sendto() failed", status);
++    PJ_LOG(3,(THIS_FILE, "Sending %s to TURN relay",
++          input));
++}
+ 
+ static void turn_on_state(pj_turn_sock *relay, pj_turn_state_t old_state,
+ 			  pj_turn_state_t new_state)
+ {
++    pj_turn_session_info info;
++
+     PJ_LOG(3,(THIS_FILE, "State %s --> %s", pj_turn_state_name(old_state), 
+ 	      pj_turn_state_name(new_state)));
+ 
++    if (new_state == PJ_TURN_STATE_CONNECTED) {
++        pj_turn_sock_get_info(relay, &info);
++        PJ_LOG(3,(THIS_FILE, "Create new socket & bind to connection %u [0x%x]", 
++            info.connection_id, info.connection_id));
++
++        connect_relay(info.connection_id);
++    } else if (new_state == PJ_TURN_STATE_PEER_CONNECTING) {
++        pj_turn_sock_get_info(relay, &info);
++        PJ_LOG(3,(THIS_FILE, "Incomming connection %u [0x%x]", 
++            info.connection_id, info.connection_id));
++
++        connect_relay(info.connection_id);       
++    }
++
++    if (new_state == PJ_TURN_STATE_BOUND_CONNECTION) {
++        send_turn_data();
++    }
++
+     if (new_state == PJ_TURN_STATE_READY) {
+-	pj_turn_session_info info;
+ 	pj_turn_sock_get_info(relay, &info);
+ 	pj_memcpy(&g.relay_addr, &info.relay_addr, sizeof(pj_sockaddr));
+     } else if (new_state > PJ_TURN_STATE_READY && g.relay) {
+-	PJ_LOG(3,(THIS_FILE, "Relay shutting down.."));
+-	g.relay = NULL;
++	//PJ_LOG(3,(THIS_FILE, "Relay shutting down.."));
++	//g.relay = NULL;
+     }
+ }
+ 
+@@ -434,6 +524,8 @@ static void menu(void)
+     puts("| p,pp   Set permission for peer 0/1 +--------------------------------+");
+     puts("| s,ss   Send data to peer 0/1       |             PEER-1             |");
+     puts("| b,bb   BindChannel to peer 0/1     |                                |");
++    puts("| c      Send Connect to TURN        |                                |");
++    puts("| cs     Send Data to TURN           |                                |");
+     printf("| x      Delete allocation           | Address: %-21s |\n",
+ 	  peer1_addr);
+     puts("+------------------------------------+                                |");
+@@ -450,6 +542,8 @@ static void console_main(void)
+ 	char input[32];
+ 	struct peer *peer;
+ 	pj_status_t status;
++            pj_sockaddr_in mapped_addr;
++        pj_str_t s1;
+ 
+ 	menu();
+ 
+@@ -457,6 +551,35 @@ static void console_main(void)
+ 	    break;
+ 	
+ 	switch (input[0]) {
++    case 'c':
++        if (input[1] == 'b') {
++            // cb
++            // puts("Send connection bind");
++            // break;            
++        } else if (input[1] == 's') {
++            // cb
++            puts("Send data to TURN");
++            send_turn_data();
++            break;            
++        }
++        status = pj_sockaddr_in_init(&mapped_addr, pj_cstr(&s1, o.peer_addr), 
++             atoi(o.peer_port));
++
++        if (status != PJ_SUCCESS)
++             my_perror("pj_sockaddr_in_init() failed", status);
++
++        if (g.relay == NULL) {
++        puts("Error: no relay");
++        continue;
++        }
++
++        status = pj_turn_sock_connect(g.relay, &mapped_addr,
++                          pj_sockaddr_get_len(&mapped_addr));
++
++        if (status != PJ_SUCCESS)
++        my_perror("turn_udp_bind_channel() failed", status);
++        puts("Send connect");
++        break;
+ 	case 'a':
+ 	    create_relay();
+ 	    break;
+@@ -509,6 +632,22 @@ static void console_main(void)
+ 	    status = pj_turn_sock_set_perm(g.relay, 1, &peer->mapped_addr, 1);
+ 	    if (status != PJ_SUCCESS)
+ 		my_perror("pj_turn_sock_set_perm() failed", status);
++
++        status = pj_sockaddr_in_init(&mapped_addr, pj_cstr(&s1, "10.0.0.1"), 
++             atoi(o.peer_port));
++
++        status = pj_turn_sock_set_perm(g.relay, 1, &mapped_addr, 1);
++
++        if (status != PJ_SUCCESS)
++        my_perror("pj_turn_sock_set_perm() failed", status);
++
++        status = pj_sockaddr_in_init(&mapped_addr, pj_cstr(&s1, "20.0.0.1"), 
++             atoi(o.peer_port));
++
++        status = pj_turn_sock_set_perm(g.relay, 1, &mapped_addr, 1);
++
++        if (status != PJ_SUCCESS)
++        my_perror("pj_turn_sock_set_perm() failed", status);
+ 	    break;
+ 	case 'x':
+ 	    if (g.relay == NULL) {
+@@ -569,8 +708,14 @@ int main(int argc, char *argv[])
+     char *pos;
+     pj_status_t status;
+ 
+-    while((c=pj_getopt_long(argc,argv, "r:u:p:S:N:hFT", long_options, &opt_id))!=-1) {
++    while((c=pj_getopt_long(argc,argv, "a:b:r:u:p:S:N:hFT", long_options, &opt_id))!=-1) {
+ 	switch (c) {
++    case 'a':
++        o.peer_addr = pj_optarg;
++        break;
++    case 'b':
++        o.peer_port = pj_optarg;
++        break;
+ 	case 'r':
+ 	    o.realm = pj_optarg;
+ 	    break;
